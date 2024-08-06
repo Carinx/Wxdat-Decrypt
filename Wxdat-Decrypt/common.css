@@ -1,0 +1,14 @@
+html{font-size: 20px;}
+body{font-size: 0.8rem;}
+ul{padding-left: 0;list-style: none;}
+a:hover,a:focus,a:active{text-decoration: none;}
+iframe{border:none;}
+textarea{resize: none;}
+[v-cloak]{display: none;}
+.fl{float: left;}
+.fr{float: right;}
+.text-ellipsis{white-space: nowrap;text-overflow: ellipsis;overflow: hidden;}
+.clearfix:after {content: "";display: table;clear: both;font-size:0 !important;line-height:0!important;height:0!important;}
+.clearfix { *zoom: 1; }/* IE 6/7 */
+.absolute-fullscreen {position: absolute; left: 0; right: 0; top: 0; bottom: 0;}
+.flex-center {display: flex; justify-content: center; align-items: center;}

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+	<meta name="viewport" content="maximum-scale=1.0,minimum-scale=1.0,user-scalable=0,width=device-width,initial-scale=1.0"/>
+    <meta name="format-detection" content="telephone=no,email=no,date=no,address=no">
+	<title>微信DAT文件解码</title>
+	<link rel="stylesheet" href="./bootstrap.min.css">
+	<link rel="stylesheet" href="./common.css">
+	<script src="./vue.min.js"></script>
+  <style>
+    .form { height: calc(100vh - 65px); display: flex; flex-direction: column; }
+    .form-group fieldset { height: 100%; }
+    .alert-info { margin-bottom: 1em; }
+    .file-list-wrapper { height: 0; flex-grow: 1; }
+    .file-list { height: calc(100% - 2em); overflow-y: auto; display: flex; flex-wrap: wrap; position: relative; border: 1px dashed #bbb; border-radius: 6px; background-color: #f5f5f5; }
+    .file-item { width: 380px; height: calc(170px + 3em); margin: .5em auto; border-radius: 8px; background-color: #fff; box-shadow: 0 0 .5em #ced2da; }
+    .file-item-header { padding: .5em; display: flex; border-bottom: 2px solid #ced2da; }
+    .file-item-header .file-item-name { width: 0; flex-grow: 1; }
+    .file-item-header .file-item-delete { display: flex; justify-content: center; align-items: center; cursor: pointer; }
+    .file-item-header .file-item-delete .close { font-size: 1.5em; }
+    .file-item-body { height: calc(160px + 1em); padding: .5em; display: flex; }
+    .file-item-thumbnail { width: 150px; margin-right: .5em; border: 1px solid #dedede; background-color: #dedede; }
+    .file-item-thumbnail img { display: block; width: 100%; height: 100%; object-fit: contain; }
+    .file-item-text { width: 0; flex-grow: 1; }
+    .file-item-text p { margin-bottom: 0; height: 30px; line-height: 30px; display: flex; }
+    .file-item-text p .file-item-value { width: 0; flex-grow: 1; }
+    .file-item-text .btn-link { padding: 0; }
+    .nodata { font-size: 16px; color: #999; background-color: #fff; }
+  </style>
+</head>
+<body>
+	<div class="container" id="app" v-cloak>
+		<h2 class="text-center">微信DAT文件解码</h2>
+    <form class="form" @submit.prevent>
+      <div class="form-group">
+        <fieldset>
+          <legend>解码设置</legend>
+          <div class="alert alert-info" role="alert">
+            <div>注：因微信DAT文件绝大多数为图片文件，在考虑运算性能的前提下，本程序目前仅支持对图片文件进行解码。</div>
+          </div>
+        </fieldset>
+      </div>
+      <div class="form-group file-list-wrapper">
+        <fieldset>
+          <legend>文件列表</legend>
+          <div class="file-list" @drop.prevent="drop" @dragover.prevent >
+            <div class="file-item" v-for="(v,i) in filesList" :key="i">
+              <div class="file-item-header">
+                <div class="file-item-name text-ellipsis" :title="v.name">{{v.name}}</div>
+                <div class="file-item-delete" @click="fileItemDelete(i)"><i class="close">×</i></div>
+              </div>
+              <div class="file-item-body">
+                <div class="file-item-thumbnail">
+                  <img :src="v.url" />
+                </div>
+                <div class="file-item-text">
+                  <p><span class="file-item-label">文件类型：</span><span class="file-item-value text-ellipsis">{{v.type}}</span></p>
+                  <p><span class="file-item-label">文件大小：</span><span class="file-item-value text-ellipsis">{{v.size | formatFileSize}}</span></p>
+                  <p><span class="file-item-label">加密密码：</span><span class="file-item-value text-ellipsis">{{v.password.toString(16)}}</span></p>
+                  <p><span class="file-item-label">执行操作：</span><span class="file-item-value">
+                    <a class="btn btn-link" @click="saveSingleFile(i)">下载文件</a>
+                  </span></p>
+                </div>
+              </div>
+            </div>
+            <div v-show="filesList.length===0" class="nodata absolute-fullscreen flex-center">将待处理文件拖动到此处</div>
+          </div>
+        </fieldset>
+      </div>
+      <div class="form-group text-center">
+        <button type="button" class="btn btn-default" @click="deleteAll">全部删除</button>
+        <button type="button" class="btn btn-info" @click="saveAll">全部下载</button>
+      </div>
+    </form>
+	</div>
+	<script type="text/javascript">
+      const formatFileSize = function (fileSize) {
+        fileSize = parseFloat(fileSize)
+        // 若参数不合法则直接return
+        if (isNaN(fileSize)) { return '0 B' }
+        let unitArr = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+        let index = 0
+        let result = ''
+        index = Math.floor(Math.log(fileSize) / Math.log(1024))
+        result = fileSize / Math.pow(1024, index)
+        // 保留的小数位数
+        let decimals = (index === 0 ? 0 : 2)
+        result = result.toFixed(decimals) + ' ' + unitArr[index]
+        return result
+      }
+      const File2ArrayBuffer = function (file) {
+        return new Promise((resolve, reject) => {
+          let fr = new FileReader()
+          fr.addEventListener('load', () => {
+            resolve(fr.result)
+          })
+          fr.addEventListener('error', (err) => {
+            reject(err)
+          })
+          fr.readAsArrayBuffer(file)
+        })
+      }
+      const downloadFileByA = (options) => {
+        let from = ''
+        let to = ''
+        from = (options || {}).from
+        to = ((options || {}).to || '').split(/[\\|\/]/g).pop()
+        // 方法1
+        let ele = document.createElement('a')
+        ele.target = '_blank'
+        ele.download = to
+        ele.style.display = 'none'
+        ele.href = from
+        document.body.appendChild(ele)
+        ele.click()
+        document.body.removeChild(ele)
+      }
+      const arrayBuffer2base64 = (data, mimeType) => {
+        let text = ''
+        for (let i = 0; i < data.byteLength; i++) {
+          text += String.fromCharCode(data[i])
+        }
+        return `data:${mimeType};base64,${btoa(text)}`
+      }
+			var vm=new Vue({
+				el:'#app',
+				data:{
+          filesList: [],
+          fileHeaderMarks: {
+            'jpg': [0xFF, 0xD8, 0xFF],
+            'png': [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
+            'gif': [0x47, 0x49, 0x46, 0x38, 0x39, 0x61],
+            'bmp': [0x42, 0x4D],
+            'pcx': [0x0A, 0x05, 0x01, 0x08],
+            'tif|tiff': [0x49, 0x49, 0x2A, 0x00],
+            'TIF|TIFF': [0x4D, 0x4D, 0x00, 0x2A],
+            'IFF': [0x46, 0x4F, 0x52, 0x4D],
+            'ANI': [0x52, 0x49, 0x46, 0x46],
+            'tga|ico|cur': [0x00, 0x00, 0x02, 0x00, 0x00],
+            'tga': [0x00, 0x00, 0x02, 0x00, 0x00],
+            'ico': [0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x20, 0x20],
+            'CUR': [0x00, 0x00, 0x02, 0x00, 0x01, 0x00, 0x20, 0x20],
+          },
+          fileMimeType: {
+            'jpg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'bmp': 'image/bmp',
+            'pcx': 'image/jpeg',
+            'tif|tiff': 'image/tif',
+            'TIF|TIFF': 'image/tif',
+            'IFF': 'image/iff',
+            'ANI': 'image/ani',
+            'tga|ico|cur': 'image/x-icon',
+            'tga': 'image/x-icon',
+            'ico': 'image/x-icon',
+            'CUR': 'image/x-icon',
+          }
+				},
+        filters: {
+          formatFileSize (val) {
+            return formatFileSize(val)
+          }
+        },
+        mounted () {
+          window.vm = this
+        },
+				methods:{
+          // 拖拽添加文件
+          drop (e) {
+            const fileList = e.dataTransfer.files
+            if (!fileList) return
+            // 取文件后缀名，必须是dat文件
+            let taskList = []
+            let indexList = []
+            for (let i = 0; i < fileList.length; i++) {
+              const file = fileList[i]
+              if (!/.dat$/i.test(file.name)) {
+                return
+              }
+              taskList.push(File2ArrayBuffer(file))
+              indexList.push(i)
+            }
+            Promise.all(taskList).then((resList) => {
+              console.log('resList:', resList)
+              if (!resList || !resList.length) return
+              resList.forEach((v, i) => {
+                let file = fileList[indexList[i]]
+                this.filesList.push({
+                  name: file.name, type: file.type, size: file.size || 0, ...this.decrypt(v)
+                })
+              })
+            })
+          },
+          decrypt (data) {
+            let result = {url: '', password: '', type: '', data: ''}
+            if (!data) return result
+            data = new Uint8Array(data)
+            result.data = data
+            for (let key in this.fileHeaderMarks) {
+              let val = this.fileHeaderMarks[key] || []
+              let pwd1 = (val[0] || 0) ^ data[0]
+              let pwd2 = (val[1] || 0) ^ data[1]
+              if (pwd1 === pwd2) {
+                result.type = key
+                result.password = pwd1
+              }
+            }
+            if (result.password) {
+              let mimeType = this.fileMimeType[result.type] || `image/${result.type}`
+              result.data = result.data.map(v => (v ^ result.password))
+              result.url = arrayBuffer2base64(result.data, mimeType)
+            }
+            return result
+          },
+          // 删除文件
+          fileItemDelete (index) {
+            this.filesList.splice(index, 1)
+          },
+          // 下载文件
+          saveFile (index) {
+            let item = this.filesList[index] || {}
+            let fileName = `${item.name}.${(item.type || '').split('|')[0]}`
+            console.log('saveFile:', item)
+            downloadFileByA({from: item.url, to: fileName})
+          },
+          // 下载单个文件
+          saveSingleFile (index) {
+            this.saveFile(index)
+          },
+          // 全部下载
+          saveAll () {
+            if (this.filesList.length <= 0) {
+              alert('未找到可处理的文件')
+              return
+            }
+            this.filesList.forEach((v, i) => {
+              setTimeout(() => {
+                this.saveFile(i)
+              }, i * 100)
+            })
+          },
+          // 全部删除
+          deleteAll () {
+            this.filesList = []
+          }
+				}
+			});
+
+	</script>
+</body>
+</html>
